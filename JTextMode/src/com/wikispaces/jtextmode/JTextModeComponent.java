@@ -16,7 +16,7 @@ import javax.swing.JComponent;
  * 
  *
  */
-public class JTextModePanel extends JComponent {
+public class JTextModeComponent extends JComponent {
 	public int rows;
 	public int columns;
 
@@ -37,7 +37,7 @@ public class JTextModePanel extends JComponent {
 			{ 0, 255, 0 }, { 0, 255, 255 }, { 255, 0, 0 }, { 255, 0, 255 },
 			{ 255, 255, 0 }, { 255, 255, 255 } };
 
-	public JTextModePanel(int rows, int columns)
+	public JTextModeComponent(int rows, int columns)
 			throws IllegalArgumentException, MissingCodePageException {
 		if (rows <= 0 || columns <= 0) {
 			throw new IllegalArgumentException(
@@ -49,7 +49,7 @@ public class JTextModePanel extends JComponent {
 		// Tint it each of the 15 other foreground colors
 		for (int i = 0; i < 16; i++) {
 			try {
-				codePage[i] = colorImage(ImageIO.read(JTextModePanel.class
+				codePage[i] = colorImage(ImageIO.read(JTextModeComponent.class
 						.getResourceAsStream("CodePage.png")), colors[i][0],
 						colors[i][1], colors[i][2]);
 			} catch (IOException e) {
