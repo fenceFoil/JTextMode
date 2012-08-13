@@ -53,18 +53,18 @@ public class JTextModeComponent extends JComponent {
 	/**
 	 * The colors that the characters are rendered in.
 	 */
-	public byte[][] foregroundColor;
+	public byte[][] screenForegroundColor;
 
 	/**
 	 * Note that on a real DOS display, EITHER 8-15 would be valid background
 	 * colors OR blinking could be enabled.
 	 */
-	public byte[][] backgroundColor;
+	public byte[][] screenBackgroundColor;
 
 	/**
 	 * The blinking bit for each character on the display.
 	 */
-	public boolean[][] blinking;
+	public boolean[][] screenBlinking;
 
 	/**
 	 * If true, the cursor and blinking characters will be rendered on or
@@ -148,16 +148,16 @@ public class JTextModeComponent extends JComponent {
 		cursorVisible = showCursor;
 
 		charsDisplayed = new int[columns][rows];
-		foregroundColor = new byte[columns][rows];
-		backgroundColor = new byte[columns][rows];
-		blinking = new boolean[columns][rows];
+		screenForegroundColor = new byte[columns][rows];
+		screenBackgroundColor = new byte[columns][rows];
+		screenBlinking = new boolean[columns][rows];
 
 		for (int x = 0; x < columns; x++) {
 			for (int y = 0; y < rows; y++) {
 				charsDisplayed[x][y] = 32;
-				foregroundColor[x][y] = 15;
-				backgroundColor[x][y] = 0;
-				blinking[x][y] = false;
+				screenForegroundColor[x][y] = 15;
+				screenBackgroundColor[x][y] = 0;
+				screenBlinking[x][y] = false;
 			}
 		}
 
@@ -214,12 +214,13 @@ public class JTextModeComponent extends JComponent {
 		// Place each individual character images into the frame
 		for (int x = 0; x < columns; x++) {
 			for (int y = 0; y < rows; y++) {
-				if (allBlinkingEnabled && blinking[x][y] && blinkOnThisFrame) {
+				if (allBlinkingEnabled && screenBlinking[x][y]
+						&& blinkOnThisFrame) {
 					// Draw background color only
 					frameGraphics.setColor(new Color(
-							colors[backgroundColor[x][y]][0],
-							colors[backgroundColor[x][y]][1],
-							colors[backgroundColor[x][y]][2]));
+							colors[screenBackgroundColor[x][y]][0],
+							colors[screenBackgroundColor[x][y]][1],
+							colors[screenBackgroundColor[x][y]][2]));
 					frameGraphics.fillRect(x * 9, y * 16, 9, 16);
 				} else {
 					int charToDraw = charsDisplayed[x][y];
@@ -238,13 +239,15 @@ public class JTextModeComponent extends JComponent {
 					// Draw character
 					int pageSheetColumn = charToDraw % 32;
 					int pageSheetRow = charToDraw / 32;
-					frameGraphics.drawImage(codePage[foregroundColor[x][y]],
-							x * 9, y * 16, (x + 1) * 9, (y + 1) * 16,
+					frameGraphics.drawImage(
+							codePage[screenForegroundColor[x][y]], x * 9,
+							y * 16, (x + 1) * 9, (y + 1) * 16,
 							pageSheetColumn * 9, pageSheetRow * 16,
 							(pageSheetColumn + 1) * 9, (pageSheetRow + 1) * 16,
-							new Color(colors[backgroundColor[x][y]][0],
-									colors[backgroundColor[x][y]][1],
-									colors[backgroundColor[x][y]][2]), null);
+							new Color(colors[screenBackgroundColor[x][y]][0],
+									colors[screenBackgroundColor[x][y]][1],
+									colors[screenBackgroundColor[x][y]][2]),
+							null);
 
 				}
 			}
@@ -341,12 +344,160 @@ public class JTextModeComponent extends JComponent {
 			putAtCursor(currChar);
 		}
 	}
-	
-	public void clearScreen () {
+
+	/**
+	 * Sets a character on the text screen without moving the cursor.
+	 * 
+	 * @param x
+	 * @param y
+	 * @param character
+	 *            return false if the x and y are out of bounds
+	 */
+	public boolean setCharAt(int x, int y, int character) {
+		if (x < 0 || x >= columns) {
+			return false;
+		}
+		if (y < 0 || y >= rows) {
+			return false;
+		}
+
+		charsDisplayed[x][y] = character;
+
+		return true;
+	}
+
+	/**
+	 * Sets a character on the text screen without moving the cursor with all
+	 * its metadata.
+	 * 
+	 * @param x
+	 * @param y
+	 * @param character
+	 * @param color
+	 * @param bgColor
+	 * @param blink
+	 *            return false if the x and y are out of bounds
+	 */
+	public boolean setCharAt(int x, int y, int character, int color,
+			int bgColor, boolean blink) {
+		if (x < 0 || x >= columns) {
+			return false;
+		}
+		if (y < 0 || y >= rows) {
+			return false;
+		}
+
+		charsDisplayed[x][y] = character;
+		screenForegroundColor[x][y] = (byte) color;
+		screenBackgroundColor[x][y] = (byte) bgColor;
+		screenBlinking[x][y] = blink;
+
+		return true;
+	}
+
+	public boolean setBlinkingAt(int x, int y, boolean blink) {
+		if (x < 0 || x >= columns) {
+			return false;
+		}
+		if (y < 0 || y >= rows) {
+			return false;
+		}
+
+		screenBlinking[x][y] = blink;
+
+		return true;
+	}
+
+	public boolean setBGColorAt(int x, int y, int bgColor) {
+		if (x < 0 || x >= columns) {
+			return false;
+		}
+		if (y < 0 || y >= rows) {
+			return false;
+		}
+
+		screenBackgroundColor[x][y] = (byte) bgColor;
+
+		return true;
+	}
+
+	public boolean setColorAt(int x, int y, int color) {
+		if (x < 0 || x >= columns) {
+			return false;
+		}
+		if (y < 0 || y >= rows) {
+			return false;
+		}
+
+		screenForegroundColor[x][y] = (byte) color;
+
+		return true;
+	}
+
+	public boolean setColorsAt(int x, int y, int color, int bgColor,
+			boolean blink) {
+		if (x < 0 || x >= columns) {
+			return false;
+		}
+		if (y < 0 || y >= rows) {
+			return false;
+		}
+
+		screenForegroundColor[x][y] = (byte) color;
+		screenBackgroundColor[x][y] = (byte) bgColor;
+		screenBlinking[x][y] = blink;
+
+		return true;
+	}
+
+	/**
+	 * Puts the cursor at the given character on the text screen.
+	 * 
+	 * @param x
+	 * @param y
+	 * @return false if the given cursor position is out of bounds; will set as
+	 *         close as possible to given position anyway
+	 */
+	public boolean setCursorPos(int x, int y) {
+		int finalX = x;
+		int finalY = y;
+		boolean goodSet = true;
+		if (x >= columns) {
+			goodSet = false;
+			finalX = columns - 1;
+		} else if (x < 0) {
+			goodSet = false;
+			finalX = 0;
+		}
+		if (y >= rows) {
+			goodSet = false;
+			finalY = rows - 1;
+		} else if (y < 0) {
+			goodSet = false;
+			finalY = 0;
+		}
+		cursorX = finalX;
+		cursorY = finalY;
+		return goodSet;
+	}
+
+	/**
+	 * Fills the screen with spaces written with the current draw colors and
+	 * blinking status.
+	 */
+	public void clearScreen() {
 		scrollScreen(rows);
 	}
 
 	private boolean doneReading = false;
+
+	/**
+	 * UNTESTED - UNFINISHED - Blocks and reads characters typed into the
+	 * component, displaying them on screen and allowing basic editing (enter,
+	 * backspace).
+	 * 
+	 * @return
+	 */
 	public String readLn() {
 		doneReading = false;
 		final StringBuilder readBuffer = new StringBuilder();
@@ -355,6 +506,7 @@ public class JTextModeComponent extends JComponent {
 			@Override
 			public void keyTyped(KeyEvent e) {
 				readBuffer.append(e.getKeyChar());
+				write(e.getKeyChar());
 				if (e.getKeyCode() == KeyEvent.VK_ENTER) {
 					doneReading = true;
 				}
@@ -383,12 +535,12 @@ public class JTextModeComponent extends JComponent {
 		return readBuffer.toString();
 	}
 
-	public void setDrawColor(byte color) {
-		currDrawColor = color;
+	public void setDrawColor(int i) {
+		currDrawColor = (byte) i;
 	}
 
-	public void setDrawBGColor(byte bgColor) {
-		currDrawBGColor = bgColor;
+	public void setDrawBGColor(int bgColor) {
+		currDrawBGColor = (byte) bgColor;
 	}
 
 	public void setDrawBlinking(boolean blinking) {
@@ -397,9 +549,9 @@ public class JTextModeComponent extends JComponent {
 
 	private void putAtCursor(int character) {
 		charsDisplayed[cursorX][cursorY] = character;
-		foregroundColor[cursorX][cursorY] = currDrawColor;
-		backgroundColor[cursorX][cursorY] = currDrawBGColor;
-		blinking[cursorX][cursorY] = currDrawBlinking;
+		screenForegroundColor[cursorX][cursorY] = currDrawColor;
+		screenBackgroundColor[cursorX][cursorY] = currDrawBGColor;
+		screenBlinking[cursorX][cursorY] = currDrawBlinking;
 		incrementCursor();
 	}
 
@@ -425,18 +577,18 @@ public class JTextModeComponent extends JComponent {
 			for (int y = 1; y < rows; y++) {
 				for (int x = 0; x < columns; x++) {
 					charsDisplayed[x][y - 1] = charsDisplayed[x][y];
-					foregroundColor[x][y - 1] = foregroundColor[x][y];
-					backgroundColor[x][y - 1] = backgroundColor[x][y];
-					blinking[x][y - 1] = blinking[x][y];
+					screenForegroundColor[x][y - 1] = screenForegroundColor[x][y];
+					screenBackgroundColor[x][y - 1] = screenBackgroundColor[x][y];
+					screenBlinking[x][y - 1] = screenBlinking[x][y];
 				}
 			}
 
 			// Clear bottom row
 			for (int x = 0; x < columns; x++) {
 				charsDisplayed[x][rows - 1] = 32;
-				foregroundColor[x][rows - 1] = currDrawColor;
-				backgroundColor[x][rows - 1] = currDrawBGColor;
-				blinking[x][rows - 1] = currDrawBlinking;
+				screenForegroundColor[x][rows - 1] = currDrawColor;
+				screenBackgroundColor[x][rows - 1] = currDrawBGColor;
+				screenBlinking[x][rows - 1] = currDrawBlinking;
 			}
 
 			// Move cursor up

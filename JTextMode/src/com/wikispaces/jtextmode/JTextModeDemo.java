@@ -43,7 +43,7 @@ public class JTextModeDemo extends JFrame {
 		contentPane.setLayout(new BorderLayout(0, 0));
 		setContentPane(contentPane);
 
-		final JTextModeComponent c = new JTextModeComponent(5, 20, true, true);
+		final JTextModeComponent c = new JTextModeComponent(20, 40, true, true);
 		c.requestFocusInWindow();
 
 		contentPane.add(c);
@@ -55,10 +55,20 @@ public class JTextModeDemo extends JFrame {
 			e.printStackTrace();
 		}
 
+		c.setDrawColor(12);
 		c.writeLn("Hello world! I am a very long string of text that should wrap around the edge of the screen.");
 		c.writeLn();
+		c.setDrawColor(14);
+		c.setDrawBGColor(4);
+		c.setDrawBlinking(true);
 		c.writeLn("And scroll.");
+		c.setCursorPos(20, 20);
 		c.write("Yes or no? ");
+		c.setCursorPos(0, 10);
+		c.setDrawColor(15);
+		c.setDrawBGColor(0);
+		c.setDrawBlinking(false);
+		c.write("C:\\>");
 	}
 
 }
