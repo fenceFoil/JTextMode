@@ -7,6 +7,7 @@ import java.awt.Color;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Image;
+import java.awt.RenderingHints;
 import java.awt.Toolkit;
 import java.awt.image.BufferedImage;
 import java.awt.image.FilteredImageSource;
@@ -14,11 +15,10 @@ import java.awt.image.ImageFilter;
 import java.awt.image.ImageProducer;
 import java.awt.image.RGBImageFilter;
 import java.io.IOException;
+import java.util.Random;
 
 import javax.imageio.ImageIO;
-import javax.swing.ImageIcon;
 import javax.swing.JComponent;
-import javax.swing.JOptionPane;
 
 /**
  * 
@@ -30,6 +30,7 @@ public class JTextModeComponent extends JComponent {
 
 	public int cursorX;
 	public int cursorY;
+	public boolean cursorVisible;
 
 	public int[][] displayMemory;
 	public byte[][] foregroundColor;
@@ -37,7 +38,7 @@ public class JTextModeComponent extends JComponent {
 	public boolean[][] blinking;
 
 	// For drawing, in each foreground color
-	private static BufferedImage codePage[];
+	private static Image codePage[];
 
 	private static final int[][] colors = { { 0, 0, 0 }, { 0, 0, 127 },
 			{ 0, 127, 0 }, { 0, 127, 127 }, { 127, 0, 0 }, { 127, 0, 127 },
@@ -52,42 +53,40 @@ public class JTextModeComponent extends JComponent {
 					"Rows and columns must be greater than 0");
 		}
 
-		// Load code page, or font image
-		codePage = new BufferedImage[16];
-		// Tint it each of the 15 other foreground colors
+		// Load first code page, or font image
+		codePage = new Image[16];
 		try {
-			codePage[0] = ImageIO.read(JTextModeComponent.class
-					.getResourceAsStream("CodePage437.png"));
-
-			JOptionPane.showConfirmDialog(null, new ImageIcon(codePage[0]));
-
-			BufferedImage b = codePage[0];
-			Graphics2D g = (Graphics2D) b.getGraphics();
-			g.drawOval(0, 0, 100, 200);
-			g.dispose();
-
-			JOptionPane.showConfirmDialog(null, new ImageIcon(b));
-
-			BufferedImage b2 = new BufferedImage(b.getWidth(), b.getHeight(),
-					b.getType());
-			Graphics2D g2 = (Graphics2D) b2.getGraphics();
-			// g2.drawImage(b, 0, 0, Color.white, null);
-			g2.setXORMode(new Color(0, 255, 0, 0));
-			g2.drawImage(b, 0, 0, null);
-			g2.dispose();
-
-			JOptionPane.showConfirmDialog(null, new ImageIcon(b2));
-
+			codePage[0] = makeColorTransparent(
+					ImageIO.read(JTextModeComponent.class
+							.getResourceAsStream("CodePage437.png")),
+					Color.white);
 		} catch (IOException e1) {
-			// TODO Auto-generated catch block
 			e1.printStackTrace();
+			throw new MissingCodePageException();
 		}
+
+		// Tint it each of the 15 other foreground colors
 		for (int i = 1; i < 16; i++) {
-			ColorTintFilter filter = new ColorTintFilter(new Color(
-					colors[i][0], colors[i][1], colors[i][2]), 0f);
-			codePage[i] = filter.filter(codePage[0], new BufferedImage(
-					codePage[0].getWidth(), codePage[0].getHeight(),
-					BufferedImage.TYPE_INT_ARGB));
+			BufferedImage rawCodePage;
+			try {
+				rawCodePage = ImageIO.read(JTextModeComponent.class
+						.getResourceAsStream("CodePage437.png"));
+
+				BufferedImage coloredCodePage = new BufferedImage(
+						rawCodePage.getWidth(), rawCodePage.getHeight(),
+						rawCodePage.getType());
+				Graphics2D g2 = (Graphics2D) coloredCodePage.getGraphics();
+				g2.setXORMode(new Color(colors[i][0], colors[i][1],
+						colors[i][2], 0));
+				g2.drawImage(makeColorTransparent(rawCodePage, Color.white), 0,
+						0, null);
+				g2.dispose();
+
+				codePage[i] = makeColorTransparent(coloredCodePage, Color.black);
+			} catch (IOException e) {
+				e.printStackTrace();
+				throw new MissingCodePageException();
+			}
 		}
 
 		// Set up the "screen"
@@ -96,17 +95,19 @@ public class JTextModeComponent extends JComponent {
 
 		cursorX = 0;
 		cursorY = 0;
+		cursorVisible = false;
 
 		displayMemory = new int[columns][rows];
 		foregroundColor = new byte[columns][rows];
 		backgroundColor = new byte[columns][rows];
 		blinking = new boolean[columns][rows];
 
+		Random r = new Random();
 		for (int x = 0; x < columns; x++) {
 			for (int y = 0; y < rows; y++) {
-				displayMemory[x][y] = 33;
-				foregroundColor[x][y] = 0;
-				backgroundColor[x][y] = 15;
+				displayMemory[x][y] = r.nextInt(256);
+				foregroundColor[x][y] = (byte) r.nextInt(16);
+				backgroundColor[x][y] = (byte) r.nextInt(16);
 				blinking[x][y] = false;
 			}
 		}
@@ -120,6 +121,11 @@ public class JTextModeComponent extends JComponent {
 		BufferedImage frameBuffer = new BufferedImage(columns * 9, rows * 16,
 				BufferedImage.TYPE_INT_ARGB);
 		Graphics2D frameGraphics = frameBuffer.createGraphics();
+		RenderingHints renderingHints = new RenderingHints(
+	             RenderingHints.KEY_TEXT_ANTIALIASING,
+	             RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+		renderingHints.put(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+	    frameGraphics.setRenderingHints(renderingHints);
 
 		// Place each individual character images into the frame
 		for (int x = 0; x < columns; x++) {
@@ -144,6 +150,14 @@ public class JTextModeComponent extends JComponent {
 		g.dispose();
 	}
 
+	/**
+	 * Source: http://stackoverflow.com/questions/665406/how-to-make-a-color-
+	 * transparent-in-a-bufferedimage-and-save-as-png
+	 * 
+	 * @param im
+	 * @param color
+	 * @return
+	 */
 	public static Image makeColorTransparent(BufferedImage im, final Color color) {
 		ImageFilter filter = new RGBImageFilter() {
 
