@@ -12,12 +12,14 @@ import java.awt.Toolkit;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
 import java.awt.image.BufferedImage;
+import java.awt.image.ColorModel;
 import java.awt.image.FilteredImageSource;
 import java.awt.image.ImageFilter;
 import java.awt.image.ImageProducer;
 import java.awt.image.RGBImageFilter;
+import java.awt.image.WritableRaster;
 import java.io.IOException;
-import java.util.LinkedList;
+import java.io.InputStream;
 
 import javax.imageio.ImageIO;
 import javax.swing.JComponent;
@@ -41,36 +43,54 @@ public class JTextModeComponent extends JComponent {
 	private int cursorY;
 
 	/**
+	 * The character used to draw the cursor
+	 * 
+	 * Default is 95: ASCII underscore
+	 */
+	private int cursorChar = 95;
+
+	/**
+	 * The character used to draw blank space
+	 * 
+	 * Default is 32: ASCII space
+	 */
+	private int blankChar = 32;
+
+	/**
 	 * Whether the cursor is rendered
 	 */
 	private boolean cursorVisible;
 
 	/**
-	 * The characters rendered on the screen.
+	 * The characters rendered on the screen. Preferably alter this with
+	 * JTextModeComponent's API.
 	 */
 	public int[][] charsDisplayed;
 
 	/**
-	 * The colors that the characters are rendered in.
+	 * The colors that the characters are rendered in. Preferably alter this
+	 * with JTextModeComponent's API.
 	 */
 	public byte[][] screenForegroundColor;
 
 	/**
 	 * Note that on a real DOS display, EITHER 8-15 would be valid background
-	 * colors OR blinking could be enabled.
+	 * colors OR blinking could be enabled. Preferably alter this with
+	 * JTextModeComponent's API.
 	 */
 	public byte[][] screenBackgroundColor;
 
 	/**
-	 * The blinking bit for each character on the display.
+	 * The blinking bit for each character on the display. Preferably alter this
+	 * with JTextModeComponent's API.
 	 */
 	public boolean[][] screenBlinking;
 
 	/**
 	 * If true, the cursor and blinking characters will be rendered on or
-	 * invisible as the timer has it. Otherwise, such as when you redraw the
-	 * screen occasionally, turn this off to have blinking characters always
-	 * visible.
+	 * invisible as the timer has it. Otherwise, such as when you only want to
+	 * redraw the screen occasionally, turn this off to have blinking characters
+	 * always visible.
 	 * */
 	private boolean allBlinkingEnabled;
 
@@ -78,6 +98,12 @@ public class JTextModeComponent extends JComponent {
 	private byte currDrawColor = 15;
 	private byte currDrawBGColor = 0;
 	private boolean currDrawBlinking = false;
+
+	// Info about the code page image being used
+	private int charWidth;
+	private int charHeight;
+	private int pageWidthInChars;
+	private int pageHeightInChars;
 
 	/**
 	 * These are images of the characters to be drawn on the screen. Their
@@ -89,12 +115,33 @@ public class JTextModeComponent extends JComponent {
 	 */
 	private static Image codePage[];
 
-	private static final int[][] colors = { { 0, 0, 0 }, { 0, 0, 127 },
-			{ 0, 127, 0 }, { 0, 127, 127 }, { 127, 0, 0 }, { 127, 0, 127 },
-			{ 127, 127, 0 }, { 127, 127, 127 }, { 99, 99, 99 }, { 0, 0, 255 },
-			{ 0, 255, 0 }, { 0, 255, 255 }, { 255, 0, 0 }, { 255, 0, 255 },
-			{ 255, 255, 0 }, { 255, 255, 255 } };
+	private static final Color[] colors = { new Color(0, 0, 0),
+			new Color(0, 0, 127), new Color(0, 127, 0), new Color(0, 127, 127),
+			new Color(127, 0, 0), new Color(127, 0, 127),
+			new Color(127, 127, 0), new Color(127, 127, 127),
+			new Color(99, 99, 99), new Color(0, 0, 255), new Color(0, 255, 0),
+			new Color(0, 255, 255), new Color(255, 0, 0),
+			new Color(255, 0, 255), new Color(255, 255, 0),
+			new Color(255, 255, 255) };
 
+	/**
+	 * Creates a new JTextModeComponent with the settings given and the default
+	 * code page.
+	 * 
+	 * @param rows
+	 *            The width of the screen simulated. Larger = slightly slower.
+	 * @param columns
+	 *            The height of the screen simulated. Larger = slightly slower.
+	 * @param blinkingEnabled
+	 *            Whether the screen is re-rendered every 500ms to make cursors
+	 *            and blinking characters blink. Consumes resources if true.
+	 * @param showCursor
+	 *            Whether the cursor is shown.
+	 * @throws IllegalArgumentException
+	 * @throws MissingCodePageException
+	 *             If the default code page image is missing from this class's
+	 *             folder.
+	 */
 	public JTextModeComponent(int rows, int columns, boolean blinkingEnabled,
 			boolean showCursor) throws IllegalArgumentException,
 			MissingCodePageException {
@@ -103,40 +150,15 @@ public class JTextModeComponent extends JComponent {
 					"Rows and columns must be greater than 0");
 		}
 
-		// Load first code page, or font image
-		codePage = new Image[16];
+		// Load default code page
 		try {
-			codePage[0] = makeColorTransparent(
-					ImageIO.read(JTextModeComponent.class
-							.getResourceAsStream("CodePage437.png")),
-					Color.white);
+			setCodePage(
+					JTextModeComponent.class
+							.getResourceAsStream("CodePage437-9x16.png"),
+					9, 16, 32, 8);
 		} catch (IOException e1) {
 			e1.printStackTrace();
 			throw new MissingCodePageException();
-		}
-
-		// Tint it each of the 15 other foreground colors
-		for (int i = 1; i < 16; i++) {
-			BufferedImage rawCodePage;
-			try {
-				rawCodePage = ImageIO.read(JTextModeComponent.class
-						.getResourceAsStream("CodePage437.png"));
-
-				BufferedImage coloredCodePage = new BufferedImage(
-						rawCodePage.getWidth(), rawCodePage.getHeight(),
-						rawCodePage.getType());
-				Graphics2D g2 = (Graphics2D) coloredCodePage.getGraphics();
-				g2.setXORMode(new Color(colors[i][0], colors[i][1],
-						colors[i][2], 0));
-				g2.drawImage(makeColorTransparent(rawCodePage, Color.white), 0,
-						0, null);
-				g2.dispose();
-
-				codePage[i] = makeColorTransparent(coloredCodePage, Color.black);
-			} catch (IOException e) {
-				e.printStackTrace();
-				throw new MissingCodePageException();
-			}
 		}
 
 		// Set up the "screen"
@@ -192,13 +214,69 @@ public class JTextModeComponent extends JComponent {
 		}
 	}
 
+	/**
+	 * Loads a "code page" for this text screen: an image with 256 character
+	 * images laid out in a grid used to draw the text on the screen. The
+	 * characters should be black on an opaque white background with no
+	 * anti-aliasing or shades of gray. Redraws the screen when done.
+	 * 
+	 * @param imageStream
+	 *            A stream connected to the code page image.
+	 * @param charWidth
+	 *            The width of one character in pixels on the grid
+	 * @param charHeight
+	 *            The height of one character in pixels on the grid
+	 * @param pageWidthInChars
+	 *            The width of the grid in characters
+	 * @param pageHeightInChars
+	 *            The height of the grid in characters
+	 * @throws IOException
+	 */
+	public void setCodePage(InputStream imageStream, int charWidth,
+			int charHeight, int pageWidthInChars, int pageHeightInChars)
+			throws IOException {
+		// Load code page image
+		BufferedImage masterCopy = ImageIO.read(imageStream);
+
+		// Load first code page, or font image in color 0
+		codePage = new Image[16];
+		codePage[0] = makeColorTransparent(deepCopyImage(masterCopy),
+				Color.white);
+
+		// Tint it each of the 15 other foreground colors
+		for (int i = 1; i < 16; i++) {
+			BufferedImage rawCodePage;
+			rawCodePage = deepCopyImage(masterCopy);
+
+			BufferedImage coloredCodePage = new BufferedImage(
+					rawCodePage.getWidth(), rawCodePage.getHeight(),
+					rawCodePage.getType());
+			Graphics2D g2 = (Graphics2D) coloredCodePage.getGraphics();
+			Color xorColor = colors[i];
+			g2.setXORMode(new Color(xorColor.getRed(), xorColor.getGreen(),
+					xorColor.getBlue(), 0));
+			g2.drawImage(makeColorTransparent(rawCodePage, Color.white), 0, 0,
+					null);
+			g2.dispose();
+
+			codePage[i] = makeColorTransparent(coloredCodePage, Color.black);
+		}
+
+		this.charWidth = charWidth;
+		this.charHeight = charHeight;
+		this.pageWidthInChars = pageWidthInChars;
+		this.pageHeightInChars = pageHeightInChars;
+
+		repaint();
+	}
+
 	@Override
 	protected void paintComponent(Graphics g) {
 		super.paintComponent(g);
 
 		// Create buffered image: a render of the text screen
-		BufferedImage frameBuffer = new BufferedImage(columns * 9, rows * 16,
-				BufferedImage.TYPE_INT_ARGB);
+		BufferedImage frameBuffer = new BufferedImage(columns * charWidth, rows
+				* charHeight, BufferedImage.TYPE_INT_ARGB);
 		Graphics2D frameGraphics = frameBuffer.createGraphics();
 		RenderingHints renderingHints = new RenderingHints(
 				RenderingHints.KEY_INTERPOLATION,
@@ -217,11 +295,9 @@ public class JTextModeComponent extends JComponent {
 				if (allBlinkingEnabled && screenBlinking[x][y]
 						&& blinkOnThisFrame) {
 					// Draw background color only
-					frameGraphics.setColor(new Color(
-							colors[screenBackgroundColor[x][y]][0],
-							colors[screenBackgroundColor[x][y]][1],
-							colors[screenBackgroundColor[x][y]][2]));
-					frameGraphics.fillRect(x * 9, y * 16, 9, 16);
+					frameGraphics.setColor(colors[screenBackgroundColor[x][y]]);
+					frameGraphics.fillRect(x * charWidth, y * charHeight,
+							charWidth, charHeight);
 				} else {
 					int charToDraw = charsDisplayed[x][y];
 
@@ -229,25 +305,25 @@ public class JTextModeComponent extends JComponent {
 					if (cursorVisible && x == cursorX && y == cursorY) {
 						if (blinkOnThisFrame) {
 							// Cursor is a space
-							charToDraw = 32;
+							charToDraw = blankChar;
 						} else {
 							// Cursor is an underscore
-							charToDraw = 95;
+							charToDraw = cursorChar;
 						}
 					}
 
 					// Draw character
-					int pageSheetColumn = charToDraw % 32;
-					int pageSheetRow = charToDraw / 32;
+					int pageSheetColumn = charToDraw % pageWidthInChars;
+					int pageSheetRow = charToDraw / pageWidthInChars;
 					frameGraphics.drawImage(
-							codePage[screenForegroundColor[x][y]], x * 9,
-							y * 16, (x + 1) * 9, (y + 1) * 16,
-							pageSheetColumn * 9, pageSheetRow * 16,
-							(pageSheetColumn + 1) * 9, (pageSheetRow + 1) * 16,
-							new Color(colors[screenBackgroundColor[x][y]][0],
-									colors[screenBackgroundColor[x][y]][1],
-									colors[screenBackgroundColor[x][y]][2]),
-							null);
+							codePage[screenForegroundColor[x][y]], x
+									* charWidth, y * charHeight, (x + 1)
+									* charWidth, (y + 1) * charHeight,
+							pageSheetColumn * charWidth, pageSheetRow
+									* charHeight, (pageSheetColumn + 1)
+									* charWidth, (pageSheetRow + 1)
+									* charHeight,
+							colors[screenBackgroundColor[x][y]], null);
 
 				}
 			}
@@ -292,6 +368,21 @@ public class JTextModeComponent extends JComponent {
 
 		ImageProducer ip = new FilteredImageSource(im.getSource(), filter);
 		return Toolkit.getDefaultToolkit().createImage(ip);
+	}
+
+	/**
+	 * Makes a copy of a BufferedImage and its contents.
+	 * 
+	 * Source: http://stackoverflow.com/questions/3514158/how-do-you-clone-a-
+	 * bufferedimage
+	 * 
+	 * @return
+	 */
+	private static BufferedImage deepCopyImage(BufferedImage image) {
+		ColorModel colorModel = image.getColorModel();
+		boolean isAlphaPremultiplied = colorModel.isAlphaPremultiplied();
+		WritableRaster raster = image.copyData(null);
+		return new BufferedImage(colorModel, raster, isAlphaPremultiplied, null);
 	}
 
 	/**
@@ -451,6 +542,80 @@ public class JTextModeComponent extends JComponent {
 	}
 
 	/**
+	 * 
+	 * @param x
+	 * @param y
+	 * @return the character at x, y, or -1 if coords our out of bounds
+	 */
+	public int getCharAt(int x, int y) {
+		if (x < 0 || x >= columns) {
+			return -1;
+		}
+		if (y < 0 || y >= rows) {
+			return -1;
+		}
+
+		return charsDisplayed[x][y];
+	}
+
+	/**
+	 * 
+	 * @param x
+	 * @param y
+	 * @return the color at x, y, or -1 if coords our out of bounds
+	 */
+	public int getColorAt(int x, int y) {
+		if (x < 0 || x >= columns) {
+			return -1;
+		}
+		if (y < 0 || y >= rows) {
+			return -1;
+		}
+
+		return screenForegroundColor[x][y];
+	}
+
+	/**
+	 * 
+	 * @param x
+	 * @param y
+	 * @return the background color at x, y, or -1 if coords our out of bounds
+	 */
+	public int getBGColorAt(int x, int y) {
+		if (x < 0 || x >= columns) {
+			return -1;
+		}
+		if (y < 0 || y >= rows) {
+			return -1;
+		}
+
+		return screenBackgroundColor[x][y];
+	}
+
+	/**
+	 * 
+	 * @param x
+	 * @param y
+	 * @return 1 if the character is blinking at x, y<br>
+	 *         0 if not<br>
+	 *         -1 if coords are out of range
+	 */
+	public int getBlinkingAt(int x, int y) {
+		if (x < 0 || x >= columns) {
+			return -1;
+		}
+		if (y < 0 || y >= rows) {
+			return -1;
+		}
+
+		if (screenBlinking[x][y]) {
+			return 1;
+		} else {
+			return 0;
+		}
+	}
+
+	/**
 	 * Puts the cursor at the given character on the text screen.
 	 * 
 	 * @param x
@@ -489,52 +654,81 @@ public class JTextModeComponent extends JComponent {
 		scrollScreen(rows);
 	}
 
-	private boolean doneReading = false;
-
-	/**
-	 * UNTESTED - UNFINISHED - Blocks and reads characters typed into the
-	 * component, displaying them on screen and allowing basic editing (enter,
-	 * backspace).
-	 * 
-	 * @return
-	 */
-	public String readLn() {
-		doneReading = false;
-		final StringBuilder readBuffer = new StringBuilder();
-		addKeyListener(new KeyListener() {
-
-			@Override
-			public void keyTyped(KeyEvent e) {
-				readBuffer.append(e.getKeyChar());
-				write(e.getKeyChar());
-				if (e.getKeyCode() == KeyEvent.VK_ENTER) {
-					doneReading = true;
+	public void scrollScreen(int scrollRows) {
+		// Shift one row at a time
+		for (int i = 0; i < scrollRows; i++) {
+			// Shift every row on the screen up
+			for (int y = 1; y < rows; y++) {
+				for (int x = 0; x < columns; x++) {
+					charsDisplayed[x][y - 1] = charsDisplayed[x][y];
+					screenForegroundColor[x][y - 1] = screenForegroundColor[x][y];
+					screenBackgroundColor[x][y - 1] = screenBackgroundColor[x][y];
+					screenBlinking[x][y - 1] = screenBlinking[x][y];
 				}
 			}
 
-			@Override
-			public void keyReleased(KeyEvent e) {
-				// TODO Auto-generated method stub
-
+			// Clear bottom row
+			for (int x = 0; x < columns; x++) {
+				charsDisplayed[x][rows - 1] = blankChar;
+				screenForegroundColor[x][rows - 1] = currDrawColor;
+				screenBackgroundColor[x][rows - 1] = currDrawBGColor;
+				screenBlinking[x][rows - 1] = currDrawBlinking;
 			}
 
-			@Override
-			public void keyPressed(KeyEvent e) {
-				// TODO Auto-generated method stub
-
-			}
-		});
-		while (!doneReading) {
-			try {
-				Thread.sleep(5);
-			} catch (InterruptedException e1) {
-				e1.printStackTrace();
-				break;
+			// Move cursor up
+			cursorY--;
+			if (cursorY < 0) {
+				cursorY = 0;
 			}
 		}
-		return readBuffer.toString();
 	}
 
+	// private boolean doneReading = false;
+	// /**
+	// * UNTESTED - UNFINISHED - Blocks and reads characters typed into the
+	// * component, displaying them on screen and allowing basic editing (enter,
+	// * backspace).
+	// *
+	// * @return
+	// */
+	// public String readLn() {
+	// doneReading = false;
+	// final StringBuilder readBuffer = new StringBuilder();
+	// addKeyListener(new KeyListener() {
+	//
+	// @Override
+	// public void keyTyped(KeyEvent e) {
+	// readBuffer.append(e.getKeyChar());
+	// write(e.getKeyChar());
+	// if (e.getKeyCode() == KeyEvent.VK_ENTER) {
+	// doneReading = true;
+	// }
+	// }
+	//
+	// @Override
+	// public void keyReleased(KeyEvent e) {
+	// // TODO Auto-generated method stub
+	//
+	// }
+	//
+	// @Override
+	// public void keyPressed(KeyEvent e) {
+	// // TODO Auto-generated method stub
+	//
+	// }
+	// });
+	// while (!doneReading) {
+	// try {
+	// Thread.sleep(5);
+	// } catch (InterruptedException e1) {
+	// e1.printStackTrace();
+	// break;
+	// }
+	// }
+	// return readBuffer.toString();
+	// }
+
+	// TODO: Range check set color methods
 	public void setDrawColor(int i) {
 		currDrawColor = (byte) i;
 	}
@@ -570,32 +764,42 @@ public class JTextModeComponent extends JComponent {
 		}
 	}
 
-	private void scrollScreen(int scrollRows) {
-		// Shift one row at a time
-		for (int i = 0; i < scrollRows; i++) {
-			// Shift every row on the screen up
-			for (int y = 1; y < rows; y++) {
-				for (int x = 0; x < columns; x++) {
-					charsDisplayed[x][y - 1] = charsDisplayed[x][y];
-					screenForegroundColor[x][y - 1] = screenForegroundColor[x][y];
-					screenBackgroundColor[x][y - 1] = screenBackgroundColor[x][y];
-					screenBlinking[x][y - 1] = screenBlinking[x][y];
-				}
-			}
+	/**
+	 * Returns the character used on the code page to draw the cursor.
+	 * 
+	 * @return
+	 */
+	public int getCursorChar() {
+		return cursorChar;
+	}
 
-			// Clear bottom row
-			for (int x = 0; x < columns; x++) {
-				charsDisplayed[x][rows - 1] = 32;
-				screenForegroundColor[x][rows - 1] = currDrawColor;
-				screenBackgroundColor[x][rows - 1] = currDrawBGColor;
-				screenBlinking[x][rows - 1] = currDrawBlinking;
-			}
+	/**
+	 * Sets the character used on the code page to draw the cursor. If your code
+	 * page doesn't put the cusor at 95 (underscore), change the character used
+	 * here to match your code page.
+	 * 
+	 * @param cursorChar
+	 */
+	public void setCursorChar(int cursorChar) {
+		this.cursorChar = cursorChar;
+	}
 
-			// Move cursor up
-			cursorY--;
-			if (cursorY < 0) {
-				cursorY = 0;
-			}
-		}
+	/**
+	 * 
+	 * @return
+	 */
+	public int getBlankChar() {
+		return blankChar;
+	}
+
+	/**
+	 * Sets the character used on the code page to draw empty space. If your
+	 * code page doesn't have a blank space at 32 (ASCII space), set this to
+	 * match your code page.
+	 * 
+	 * @param blankChar
+	 */
+	public void setBlankChar(int blankChar) {
+		this.blankChar = blankChar;
 	}
 }
