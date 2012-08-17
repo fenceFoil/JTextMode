@@ -7,6 +7,7 @@ import java.awt.Color;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Image;
+import java.awt.Point;
 import java.awt.RenderingHints;
 import java.awt.Toolkit;
 import java.awt.event.KeyEvent;
@@ -37,10 +38,20 @@ public class JTextModeComponent extends JComponent {
 	private int columns;
 
 	/**
+	 * Whether to ensure that the characters of this display are never
+	 * distorted, stretched, or squished as the compnent is resized.
+	 */
+	private boolean lockAspect = false;
+
+	/**
 	 * The position of the cursor on the text screen.
 	 */
 	private int cursorX;
 	private int cursorY;
+
+	// Position of the mouse cursor on the text screen
+	private int mouseCursorX = 0;
+	private int mouseCursorY = 0;
 
 	/**
 	 * The character used to draw the cursor
@@ -60,6 +71,11 @@ public class JTextModeComponent extends JComponent {
 	 * Whether the cursor is rendered
 	 */
 	private boolean cursorVisible;
+
+	/**
+	 * Whether the mouse cursor is rendered
+	 */
+	private boolean mouseCursorVisible;
 
 	/**
 	 * The characters rendered on the screen. Preferably alter this with
@@ -117,12 +133,27 @@ public class JTextModeComponent extends JComponent {
 
 	private static final Color[] colors = { new Color(0, 0, 0),
 			new Color(0, 0, 127), new Color(0, 127, 0), new Color(0, 127, 127),
-			new Color(127, 0, 0), new Color(127, 0, 127),
-			new Color(127, 127, 0), new Color(127, 127, 127),
+			new Color(127, 0, 0),
+			new Color(127, 0, 127),
+			new Color(127, 127, 0),
+			new Color(127, 127, 127),
+			// High intensity
 			new Color(99, 99, 99), new Color(0, 0, 255), new Color(0, 255, 0),
 			new Color(0, 255, 255), new Color(255, 0, 0),
 			new Color(255, 0, 255), new Color(255, 255, 0),
 			new Color(255, 255, 255) };
+
+	private static final Color[] invertedColors = { new Color(127, 127, 127),
+			new Color(127, 127, 0), new Color(127, 0, 127),
+			new Color(127, 0, 0), new Color(0, 127, 127),
+			new Color(0, 127, 0),
+			new Color(0, 0, 127),
+			new Color(0, 0, 0),
+			// High intensity
+			new Color(255, 255, 255), new Color(255, 255, 0),
+			new Color(255, 0, 255), new Color(255, 0, 0),
+			new Color(0, 255, 255), new Color(0, 255, 0), new Color(0, 0, 255),
+			new Color(99, 99, 99) };
 
 	/**
 	 * Creates a new JTextModeComponent with the settings given and the default
@@ -143,8 +174,8 @@ public class JTextModeComponent extends JComponent {
 	 *             folder.
 	 */
 	public JTextModeComponent(int rows, int columns, boolean blinkingEnabled,
-			boolean showCursor) throws IllegalArgumentException,
-			MissingCodePageException {
+			boolean showCursor, boolean lockAspectRatio)
+			throws IllegalArgumentException, MissingCodePageException {
 		if (rows <= 0 || columns <= 0) {
 			throw new IllegalArgumentException(
 					"Rows and columns must be greater than 0");
@@ -164,6 +195,8 @@ public class JTextModeComponent extends JComponent {
 		// Set up the "screen"
 		this.rows = rows;
 		this.columns = columns;
+
+		setLockAspect(lockAspectRatio);
 
 		cursorX = 0;
 		cursorY = 0;
@@ -333,7 +366,41 @@ public class JTextModeComponent extends JComponent {
 		frameGraphics.dispose();
 
 		// Draw and scale the framebuffer into the component
-		g.drawImage(frameBuffer, 0, 0, getWidth(), getHeight(), null);
+		if (lockAspect) {
+			double bufferRatio = (double) frameBuffer.getHeight()
+					/ (double) frameBuffer.getWidth();
+			double componentRatio = (double) getHeight() / (double) getWidth();
+			if (componentRatio < bufferRatio) {
+				// Too wide
+				// Center by x
+				double resizeRatio = (double) getHeight()
+						/ (double) frameBuffer.getHeight();
+				// Find excess width
+				double excessWidth = (double) getWidth()
+						- (resizeRatio * (double) frameBuffer.getWidth());
+				g.drawImage(frameBuffer, (int) (excessWidth / 2), 0,
+						(int) (resizeRatio * (double) frameBuffer.getWidth()),
+						(int) (resizeRatio * (double) frameBuffer.getHeight()),
+						null);
+			} else if (componentRatio > bufferRatio) {
+				// Too tall
+				// Center by y
+				double resizeRatio = (double) getWidth()
+						/ (double) frameBuffer.getWidth();
+				// Find excess height
+				double excessHeight = (double) getHeight()
+						- (resizeRatio * (double) frameBuffer.getHeight());
+				g.drawImage(frameBuffer, 0, (int) (excessHeight / 2),
+						(int) (resizeRatio * (double) frameBuffer.getWidth()),
+						(int) (resizeRatio * (double) frameBuffer.getHeight()),
+						null);
+			} else {
+				// Just right
+				g.drawImage(frameBuffer, 0, 0, getWidth(), getHeight(), null);
+			}
+		} else {
+			g.drawImage(frameBuffer, 0, 0, getWidth(), getHeight(), null);
+		}
 		g.dispose();
 	}
 
@@ -741,6 +808,10 @@ public class JTextModeComponent extends JComponent {
 		currDrawBlinking = blinking;
 	}
 
+	public void setShowMouseCursor(boolean show) {
+		mouseCursorVisible = show;
+	}
+
 	private void putAtCursor(int character) {
 		charsDisplayed[cursorX][cursorY] = character;
 		screenForegroundColor[cursorX][cursorY] = currDrawColor;
@@ -801,5 +872,36 @@ public class JTextModeComponent extends JComponent {
 	 */
 	public void setBlankChar(int blankChar) {
 		this.blankChar = blankChar;
+	}
+
+	/**
+	 * Returns text screen coords (rows and columns) for given pixel coordinates
+	 * within this component.
+	 * 
+	 * TODO: Bug: only works when the aspect ratio is not locked.
+	 * 
+	 * @param x
+	 * @param y
+	 * @return -1 if the aspect ratio is locked and the given position is
+	 *         outside of the display area.
+	 */
+	public Point getTextCoordsForComponentCoords(int x, int y) {
+		if (!lockAspect) {
+			int textX = (int) (((double) x / (double) getWidth()) * (double) columns);
+			int textY = (int) (((double) y / (double) getHeight()) * (double) rows);
+		} else {
+			// If aspect is locked, calculate where the cursor appears
+			// TODO
+			int 
+		}
+		return new Point(textX, textY);
+	}
+
+	public boolean isLockAspect() {
+		return lockAspect;
+	}
+
+	public void setLockAspect(boolean lockAspect) {
+		this.lockAspect = lockAspect;
 	}
 }
