@@ -1,0 +1,1 @@
+imgscalr: APACHE 2.0

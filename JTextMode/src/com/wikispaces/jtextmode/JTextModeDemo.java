@@ -43,7 +43,7 @@ public class JTextModeDemo extends JFrame {
 		contentPane.setLayout(new BorderLayout(0, 0));
 		setContentPane(contentPane);
 
-		final JTextModeComponent c = new JTextModeComponent(20, 40, true, true);
+		final JTextModeComponent c = new JTextModeComponent(20, 40, true, true, true);
 		c.requestFocusInWindow();
 
 		contentPane.add(c);
